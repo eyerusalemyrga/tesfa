@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Data - kept out of version control, see README for how to reproduce
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Models
+models/*.pkl
+!models/.gitkeep
+
+# Env secrets
+.env
+
+# OS junk
+.DS_Store
+Thumbs.db
