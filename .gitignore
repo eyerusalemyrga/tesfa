@@ -4,17 +4,13 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Data - kept out of version control, see README for how to reproduce
-data/raw/*
-!data/raw/.gitkeep
-data/processed/*
-!data/processed/.gitkeep
 
-# Models
-models/*.pkl
-!models/.gitkeep
 
 # Env secrets
 .env
+
+# Ignore the specific CSV dataset file
+**/global_conflicts_dataset.csv
 
 # OS junk
 .DS_Store
