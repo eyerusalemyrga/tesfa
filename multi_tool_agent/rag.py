@@ -1,8 +1,9 @@
 import json
 import os
+import time
 from typing import Any, Dict, List
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from psycopg2.extras import RealDictCursor
 from multi_tool_agent.tools.db import get_db_connection
 
@@ -87,3 +88,53 @@ def query_rag_embeddings(query_text: str, top_k: int = 3) -> List[Dict[str, Any]
     except Exception as e:
         print(f"[Warning] RAG vector search failed: {e}")
         return []
+
+
+def ask_knowledgebase(query_text: str, top_k: int = 3) -> str:
+    """Retrieve context and generate response using chat interface."""
+    client = get_gemini_client()
+    if not client:
+        return "Service unavailable: AI client could not be initialized."
+
+    chunks = query_rag_embeddings(query_text, top_k=top_k)
+    
+    if not chunks:
+        context_str = "No specific context found in database."
+    else:
+        context_str = "\n\n".join(
+            [f"--- Context (Source: {c.get('document_title', 'Ref')}) ---\n{c.get('content_chunk', '')}" for c in chunks]
+        )
+
+    prompt = f"""You are Tesfa, a conflict analytics assistant.
+Use the following context to answer the user's question accurately.
+
+Context:
+{context_str}
+
+User Question: {query_text}
+Answer:"""
+
+    # Use stable, available models
+    models_to_try = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"]
+    
+    for model_name in models_to_try:
+        for attempt in range(3):
+            try:
+                chat = client.chats.create(model=model_name)
+                response = chat.send_message(prompt)
+                if response and response.text:
+                    return response.text.strip()
+            except errors.APIError as e:
+                if e.code == 503 and attempt < 2:
+                    wait_time = (2 ** attempt) + 1
+                    print(f"[Warning] 503 High Demand on {model_name}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"[Warning] Call to model {model_name} failed: {e}")
+                    break
+            except Exception as e:
+                print(f"[Warning] Call to {model_name} failed: {e}")
+                break
+
+    return "An error occurred while processing your request due to model unavailability."
