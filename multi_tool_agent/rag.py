@@ -48,13 +48,15 @@ def index_document_chunk(title: str, content: str, metadata: Dict[str, Any] = No
 
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                # Combine title and content into document_text to match schema
+                document_text = f"Title: {title}\n\nContent: {content}"
                 cur.execute(
                     """
                     INSERT INTO tesfa.rag_embeddings 
-                    (document_title, content_chunk, embedding, metadata) 
-                    VALUES (%s, %s, %s::vector, %s::jsonb);
+                    (document_text, embedding, metadata) 
+                    VALUES (%s, %s::vector, %s::jsonb);
                     """,
-                    (title, content, vec_str, metadata_json),
+                    (document_text, vec_str, metadata_json),
                 )
                 conn.commit()
         return True
@@ -74,7 +76,7 @@ def query_rag_embeddings(query_text: str, top_k: int = 3) -> List[Dict[str, Any]
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT document_title, content_chunk, metadata, 
+                    SELECT document_text, metadata, 
                            (embedding <=> %s::vector) AS distance 
                     FROM tesfa.rag_embeddings 
                     ORDER BY distance ASC 
@@ -102,7 +104,7 @@ def ask_knowledgebase(query_text: str, top_k: int = 3) -> str:
         context_str = "No specific context found in database."
     else:
         context_str = "\n\n".join(
-            [f"--- Context (Source: {c.get('document_title', 'Ref')}) ---\n{c.get('content_chunk', '')}" for c in chunks]
+            [f"--- Context ---\n{c.get('document_text', '')}" for c in chunks]
         )
 
     prompt = f"""You are Tesfa, a conflict analytics assistant.
