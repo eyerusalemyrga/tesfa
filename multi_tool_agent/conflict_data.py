@@ -13,7 +13,7 @@ def get_conflict_impact_summary(conflict_type: str = None, target_region: str = 
                     COALESCE(AVG(economic_loss_usd_billions), 0) as avg_economic_loss,
                     COALESCE(AVG(refugees_millions), 0) as avg_refugees_millions,
                     COALESCE(SUM(refugees_millions), 0) as total_refugees_millions
-                FROM tesfa.global_conflicts
+                FROM tesfa.conflicts_full
                 WHERE 1=1
             """
             params = []
@@ -41,7 +41,7 @@ def get_conflict_impact_summary(conflict_type: str = None, target_region: str = 
                         COALESCE(AVG(economic_loss_usd_billions), 0) as avg_economic_loss,
                         COALESCE(AVG(refugees_millions), 0) as avg_refugees_millions,
                         COALESCE(SUM(refugees_millions), 0) as total_refugees_millions
-                    FROM tesfa.global_conflicts
+                    FROM tesfa.conflicts_full
                     WHERE conflict_type ILIKE %s;
                 """
                 cur.execute(fallback_query, (f"%{conflict_type}%",))

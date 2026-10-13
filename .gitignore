@@ -15,3 +15,6 @@ __pycache__/
 # OS junk
 .DS_Store
 Thumbs.db
+
+# ignore charts
+static/charts/*

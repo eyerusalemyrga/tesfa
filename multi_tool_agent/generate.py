@@ -1,131 +1,93 @@
-import os
-import time
-import traceback
-from dotenv import load_dotenv
-from google import genai
-from google.genai import errors, types
+import json
+
+from multi_tool_agent.llm import ask_llm
 from multi_tool_agent.rag import query_rag_embeddings
 
-load_dotenv()
-
-PRIMARY_MODEL = "gemini-3.8-flash"
-
-SYSTEM_PERSONA_PROMPT = """
-You are Tesfa, an AI decision-support assistant specializing in post-conflict impact forecasting, 
-environmental health risk assessment, economic loss analysis, and human displacement tracking.
-
-When answering general or personal questions:
-- Be polite, concise, and professional.
-- Explain your purpose as an analytical tool for post-conflict recovery and spatial forecasting.
-- Guide the user on what questions they can ask you (e.g., conflict metrics, health hazards, damage estimates).
-- Do NOT generate fake conflict statistics or mention Region A/Region B unless specifically asked about sample datasets.
-"""
-
-
-def get_gemini_client():
-    """Initialize Google GenAI Client using default settings."""
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        print("[Error] GEMINI_API_KEY or GOOGLE_API_KEY environment variable is missing.")
-        return None
-    try:
-        return genai.Client(api_key=api_key)
-    except Exception as e:
-        print(f"[Error] Failed to initialize Google GenAI Client: {e}")
-        return None
-
-
-def generate_tesfa_response(user_query: str, rag_context: str = None, db_metrics: dict = None, top_k: int = 3) -> str:
-    """Generate response using RAG context with retry logic."""
-    client = get_gemini_client()
-    if not client:
-        return "Error: Unable to initialize GenAI client."
-
+def generate_tesfa_response(user_query: str, db_metrics: dict = None, top_k: int = 3) -> str:
+    """Generate response using RAG context, predictions, and reference links."""
     matches = query_rag_embeddings(user_query, top_k=top_k)
 
     if matches:
         context_str = "\n\n".join(
-            [f"Source: {m.get('document_text', '')}" for m in matches]
+            [f"Reference: {m.get('document_text', '')}" for m in matches]
         )
-    elif isinstance(rag_context, str):
-        context_str = rag_context
     else:
         context_str = "No explicit context retrieved."
 
-    metrics_str = f"Database Summary: {db_metrics}" if db_metrics else "No metrics available."
+    # Build metrics and predictions context
+    metrics_str = ""
+    if db_metrics and db_metrics.get("summary"):
+        summary = db_metrics["summary"]
+        metrics_str = f"Database shows {summary.get('conflict_count', 0)} conflicts with average {summary.get('avg_civilian_deaths', 0):.0f} civilian deaths, {summary.get('avg_refugees_millions', 0):.1f}M refugees, and ${summary.get('avg_economic_loss', 0):.1f}B economic loss."
+
+    # Add top predictions with reference links
+    predictions_str = ""
+    if db_metrics and db_metrics.get("records"):
+        predictions_str = "\nTop Risk Scenarios:\n"
+        for record in db_metrics["records"][:3]:
+            risk_score = record.get("predicted_risk_score", 0)
+            consequence = record.get("predicted_postwar_consequence", "")
+            links = record.get("evidence_reference_links", "[]")
+            try:
+                links_data = json.loads(links) if isinstance(links, str) else links
+                links_text = "; ".join([l["title"] for l in links_data[:2]]) if links_data else ""
+            except (ValueError, TypeError, KeyError):
+                links_text = ""
+            predictions_str += f"Risk {risk_score}/20: {consequence}. References: {links_text}\n"
+
+    if wants_evidence(user_query):
+        style_rule = "The user asked for evidence, so you may include relevant numbers and name the evidence sources."
+    elif wants_details(user_query):
+        style_rule = ("The user asked for specifics, so you may include relevant numbers, "
+                      "but do not mention source names, studies, links, or risk scores.")
+    else:
+        style_rule = ("Explain in simple, friendly everyday English in one or two short paragraphs. "
+                      "Do not include statistics, numbers, scores, dollar figures, links, or source names. "
+                      "Describe the likely outcomes in plain words only.")
+    style_rule += " Start directly with the answer; do not greet or introduce yourself."
 
     prompt = f"""You are Tesfa, an AI decision system for post-conflict impact forecasting.
-Use the following retrieved context and metrics to answer the user request accurately.
+Use the following retrieved context, metrics, and risk predictions to answer the user request accurately.
 
-Context:
+Context from Knowledge Base:
 {context_str}
 
-Metrics:
+Conflict Metrics:
 {metrics_str}
+
+Risk Predictions with Evidence:
+{predictions_str}
 
 User Query:
 {user_query}
+
+Answer in plain text only. No markdown, no headings, no bullets, no asterisks.
+{style_rule}
 """
 
-    models_to_try = [PRIMARY_MODEL]
-    max_retries = 3
+    return ask_llm(prompt)
 
-    for model_name in models_to_try:
-        for attempt in range(max_retries):
-            try:
-                chat = client.chats.create(model=model_name)
-                response = chat.send_message(prompt)
-                if response and response.text:
-                    return response.text.strip()
-            except errors.APIError as e:
-                if e.code == 503 and attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + 1
-                    print(f"[Warning] 503 High Demand on {model_name}. Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                elif e.code == 429:
-                    print(f"[Warning] Quota exceeded on {model_name}. Skipping model.")
-                    break
-                else:
-                    print(f"[Warning] Call to model {model_name} failed with APIError: {e}")
-                    break
-            except Exception as e:
-                print(f"[Warning] Unexpected error on {model_name}: {e}")
-                traceback.print_exc()
-                break
+CONVERSATION_PROMPT = """You are Tesfa, a friendly AI assistant that helps people understand post-war conflict and its effects on people, health and the environment.
+Reply to the message below like a warm, natural conversation partner.
+- If it is a greeting like hi or hii, greet back briefly and ask how you can help.
+- If it is about you (your name, who made you, what you can do, how you are), answer honestly: you are Tesfa, an AI assistant for post-war conflict and environmental analysis.
+- If it is thanks or goodbye, respond politely.
+- Keep it to one or two short sentences, plain text only, no markdown.
 
-    return "Error: All generation attempts failed due to service unavailability."
+Message: """
 
+EVIDENCE_WORDS = ("link", "source", "reference", "citation", "evidence", "consequence")
+DETAIL_WORDS = ("number", "statistic", "stats", "figure", "data", "metric", "chart", "graph",
+                "how many", "how much", "detail") + EVIDENCE_WORDS
+
+def wants_details(query: str) -> bool:
+    q = query.lower()
+    return any(w in q for w in DETAIL_WORDS)
+
+def wants_evidence(query: str) -> bool:
+    q = query.lower()
+    return any(w in q for w in EVIDENCE_WORDS)
 
 def generate_conversational_response(user_query: str) -> str:
-    """Generate direct conversational responses for personal or non-domain prompts."""
-    client = get_gemini_client()
-    if not client:
-        return "Service unavailable: AI client could not be initialized."
-
-    models_to_try = [PRIMARY_MODEL]
-    max_retries = 3
-
-    for model_name in models_to_try:
-        for attempt in range(max_retries):
-            try:
-                chat = client.chats.create(model=model_name)
-                response = chat.send_message(user_query)
-                if response and response.text:
-                    return response.text.strip()
-            except errors.APIError as e:
-                if e.code == 503 and attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + 1
-                    print(f"[Warning] 503 High Demand on {model_name}. Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                elif e.code == 429:
-                    print(f"[Warning] Quota exceeded on {model_name}. Returning fallback response.")
-                    break
-                else:
-                    print(f"[Warning] Call to model {model_name} failed: {e}")
-                    break
-            except Exception as e:
-                print(f"[Error] Generation failed on {model_name}: {e}")
-                traceback.print_exc()
-                break
-
-    return "The service is currently experiencing high demand. Please try again in a few moments."
+    """Generate conversational responses for personal or non-domain prompts."""
+    return ask_llm(CONVERSATION_PROMPT + user_query)
