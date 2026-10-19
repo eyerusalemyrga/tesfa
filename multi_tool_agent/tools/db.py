@@ -7,7 +7,7 @@ load_dotenv()
 
 def get_db_connection():
     """Connect with DATABASE_URL if set (hosted databases such as Supabase), else the POSTGRES_* settings."""
-    database_url = os.getenv("DATABASE_URL")
+    database_url = (os.getenv("DATABASE_URL") or "").strip()  # pasted values often carry a trailing newline
     if database_url:
         return psycopg2.connect(database_url, cursor_factory=RealDictCursor)
     return psycopg2.connect(
@@ -71,5 +71,6 @@ def fetch_conflict_metrics() -> dict:
                 return {"summary": summary, "records": records}
 
     except Exception as e:
-        print(f"[Warning] Metrics fetch failed: {e}")
-        return {"summary": {"conflict_count": 0}, "records": []}
+        # Don't pretend there is no data: that makes the AI answer confidently from nothing.
+        print(f"[ERROR] Could not read conflict data from the database: {e}")
+        raise

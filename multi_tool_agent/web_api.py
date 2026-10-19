@@ -16,8 +16,8 @@ app = FastAPI(title="Tesfa AI - Post-War Conflict Analytics")
 
 def require_api_key(x_api_key: str | None = Header(default=None)):
     """If TESFA_API_KEY is set, callers must send it in the X-API-Key header. Unset means open (local use)."""
-    expected = os.getenv("TESFA_API_KEY")
-    if expected and not secrets.compare_digest(x_api_key or "", expected):
+    expected = (os.getenv("TESFA_API_KEY") or "").strip()
+    if expected and not secrets.compare_digest((x_api_key or "").strip(), expected):
         raise HTTPException(status_code=401, detail="Missing or invalid API key.")
 
 

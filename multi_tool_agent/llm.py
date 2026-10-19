@@ -24,7 +24,7 @@ class LLMUnavailableError(RuntimeError):
 
 @lru_cache(maxsize=1)
 def get_client() -> genai.Client:
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
     if not api_key:
         raise LLMUnavailableError("GEMINI_API_KEY is not set.")
     return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS))
