@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: tesfa-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn multi_tool_agent.web_api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: GEMINI_API_KEY
+        sync: false          # paste in the Render dashboard
+      - key: DATABASE_URL
+        sync: false          # Supabase "Session pooler" connection string
+      - key: TESFA_API_KEY
+        generateValue: true  # Render creates a random key; copy it into your UI's settings

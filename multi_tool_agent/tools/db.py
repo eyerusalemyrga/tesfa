@@ -6,21 +6,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_db_connection():
-    db_config = {
-        "host": os.environ["POSTGRES_HOST"],
-        "port": int(os.environ["POSTGRES_PORT"]),
-        "dbname": os.environ["POSTGRES_DB"],
-        "user": os.environ["POSTGRES_USER"],
-        "password": os.environ["POSTGRES_PASSWORD"],
-    }
-    return psycopg2.connect(**db_config, cursor_factory=RealDictCursor)
+    """Connect with DATABASE_URL if set (hosted databases such as Supabase), else the POSTGRES_* settings."""
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return psycopg2.connect(database_url, cursor_factory=RealDictCursor)
+    return psycopg2.connect(
+        host=os.environ["POSTGRES_HOST"],
+        port=int(os.environ["POSTGRES_PORT"]),
+        dbname=os.environ["POSTGRES_DB"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+        cursor_factory=RealDictCursor,
+    )
 
 def fetch_conflict_metrics() -> dict:
     """Fetch summary metrics and top conflicts with predictions."""
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Aggregate metrics
                 cur.execute("""
                     SELECT
                         COUNT(*) AS conflict_count,

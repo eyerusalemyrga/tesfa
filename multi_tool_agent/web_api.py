@@ -1,21 +1,24 @@
 import asyncio
 import json
+import os
+import secrets
 import traceback
-from pathlib import Path
 import anyio
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import PlainTextResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 from multi_tool_agent.llm import LLMUnavailableError
 from multi_tool_agent.main_agent import process_tesfa_query
 
-STATIC_DIR = Path("static")
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
-
 app = FastAPI(title="Tesfa AI - Post-War Conflict Analytics")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)):
+    """If TESFA_API_KEY is set, callers must send it in the X-API-Key header. Unset means open (local use)."""
+    expected = os.getenv("TESFA_API_KEY")
+    if expected and not secrets.compare_digest(x_api_key or "", expected):
+        raise HTTPException(status_code=401, detail="Missing or invalid API key.")
 
 
 class QueryRequest(BaseModel):
@@ -52,7 +55,7 @@ async def health():
     return {"status": "healthy", "service": "Tesfa"}
 
 
-@app.post("/api/query")
+@app.post("/api/query", dependencies=[Depends(require_api_key)])
 async def handle_query(req: QueryRequest):
     user_input = req.prompt or req.query
     if not user_input:
